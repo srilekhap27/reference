@@ -1,39 +1,34 @@
-Key Conditions:
-If sourceObject matches (or is partially present in) keySource and both actionObject and errornameObject are empty.
-If actionObject matches (or is partially present in) keyAction and both sourceObject and errornameObject are empty.
-If errornameObject matches (or is partially present in) keyErrorname and both sourceObject and actionObject are empty.
-If both sourceObject and actionObject match, and errornameObject is empty.
-If both actionObject and errornameObject match, and sourceObject is empty.
-If both sourceObject and errornameObject match, and actionObject is empty.
-If all three (sourceObject, actionObject, errornameObject) match.
-Here's the final version with all your specific conditions:
-javascript
-Copy code
 const handleSearch = (e) => {
   e.preventDefault();
   console.log("Calling handleSearch");
+
+  if (!sourceObject && !actionObject && !errornameObject) {
+    // Set the error message if no fields are filled
+    setFilterErrorMessage('Any one field is required to submit.');
+    return;
+  }
 
   let combinedRecords = [];
 
   // Helper function to push a matching record into combinedRecords
   const addRecord = (keyErrorname, keySource, timestamp, keyAction, singleObj) => {
-    const recordExists = combinedRecords.some(record => 
-      record[2] === keyErrorname && 
-      record[3] === keySource && 
+    const recordExists = combinedRecords.some(record =>
+      record[2] === keyErrorname &&
+      record[3] === keySource &&
       record[5] === keyAction
     );
-    
+
     if (!recordExists) {
       combinedRecords.push([1, false, keyErrorname, keySource, timestamp, keyAction, singleObj]);
     }
   };
 
-  // Assuming getAllRecords is an async function that fetches data from a backend
+  // Fetch all records
   getAllRecords(null)
     .then((response) => {
       // Validate response and parse data
       if (!response || !response.data || !response.data.body) {
-        console.error("Invalid response structure");
+        setFilterErrorMessage("Invalid response structure");
         return;
       }
 
@@ -41,12 +36,12 @@ const handleSearch = (e) => {
       try {
         data = JSON.parse(response.data.body);
       } catch (e) {
-        console.error("Failed to parse response body");
+        setFilterErrorMessage("Failed to parse response body");
         return;
       }
 
       if (!Array.isArray(data.objects) || data.objects.length === 0) {
-        console.log("No objects found");
+        setFilterErrorMessage("No records matched your search criteria.");
         return;
       }
 
@@ -63,45 +58,25 @@ const handleSearch = (e) => {
         const errornameMatches = errornameObject && keyErrorname.includes(errornameObject);
 
         // Matching Conditions
-
-        // 1. If sourceObject is filled and matches keySource and both actionObject and errornameObject are empty
         if (sourceMatches && !actionObject && !errornameObject) {
           console.log("Source matched with empty Action and Errorname");
           addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        }
-
-        // 2. If actionObject is filled and matches keyAction and both sourceObject and errornameObject are empty
-        if (actionMatches && !sourceObject && !errornameObject) {
+        } else if (actionMatches && !sourceObject && !errornameObject) {
           console.log("Action matched with empty Source and Errorname");
           addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        }
-
-        // 3. If errornameObject is filled and matches keyErrorname and both sourceObject and actionObject are empty
-        if (errornameMatches && !sourceObject && !actionObject) {
+        } else if (errornameMatches && !sourceObject && !actionObject) {
           console.log("Errorname matched with empty Source and Action");
           addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        }
-
-        // 4. If both sourceObject and actionObject are filled and match, and errornameObject is empty
-        if (sourceMatches && actionMatches && !errornameObject) {
+        } else if (sourceMatches && actionMatches && !errornameObject) {
           console.log("Source and Action matched with empty Errorname");
           addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        }
-
-        // 5. If both actionObject and errornameObject are filled and match, and sourceObject is empty
-        if (actionMatches && errornameMatches && !sourceObject) {
+        } else if (actionMatches && errornameMatches && !sourceObject) {
           console.log("Action and Errorname matched with empty Source");
           addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        }
-
-        // 6. If both sourceObject and errornameObject are filled and match, and actionObject is empty
-        if (sourceMatches && errornameMatches && !actionObject) {
+        } else if (sourceMatches && errornameMatches && !actionObject) {
           console.log("Source and Errorname matched with empty Action");
           addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        }
-
-        // 7. If all three values (sourceObject, actionObject, errornameObject) match
-        if (sourceMatches && actionMatches && errornameMatches) {
+        } else if (sourceMatches && actionMatches && errornameMatches) {
           console.log("Source, Action, and Errorname matched");
           addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
         }
@@ -109,41 +84,25 @@ const handleSearch = (e) => {
 
       // Handle no matches found
       if (combinedRecords.length === 0) {
-        console.log("No matches found");
-        alert("No records matched your search criteria.");
+        setFilterErrorMessage("No records matched your search criteria.");
+        setRecords([]);
+        setIsMoreData(false);
       } else {
         setRecords([...combinedRecords]);  // Update state with the new records
       }
     })
     .catch((error) => {
-      console.error("Error fetching records:", error);
+      setFilterErrorMessage("Error fetching records: " + error);
     });
 };
-Explanation of the Final Code:
-Conditions as You Requested:
 
-The code now explicitly checks all combinations you specified:
-When only sourceObject is filled and matches.
-When only actionObject is filled and matches.
-When only errornameObject is filled and matches.
-And so on, for combinations of two or all three fields.
-Partial Matching:
+// Function to reset the filters
+const resetFilters = () => {
+  // Reload the page
+  window.location.reload();
 
-The matching is done using the .includes() method to allow partial string matching. For example, "abcd" will match "abcdefg".
-No Trimming:
-
-As per your request, no trimming operations are included. The matching is done directly based on the input values provided by the user.
-Error Handling:
-
-The code includes error handling to catch any invalid responses or parsing issues from the getAllRecords function.
-No Matches Found:
-
-If no records match after iterating through all the objects, the code alerts the user that no matches were found.
-Summary of the Matching Conditions:
-sourceObject matches and both actionObject and errornameObject are empty.
-actionObject matches and both sourceObject and errornameObject are empty.
-errornameObject matches and both sourceObject and actionObject are empty.
-sourceObject and actionObject match, and errornameObject is empty.
-actionObject and errornameObject match, and sourceObject is empty.
-sourceObject and errornameObject match, and actionObject is empty.
-sourceObject, actionObject, and errornameObject all match.
+  // Reset the source, action, and error name state
+  setSourceObject('');
+  setActionObject('');
+  setErrornameObject('');
+};
