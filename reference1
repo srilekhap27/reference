@@ -1,108 +1,117 @@
-const handleSearch = (e) => {
-  e.preventDefault();
+// Function to handle searching based on the provided search parameters
+const handleSearch = async (e) => {
+  e.preventDefault(); // Prevent default form submission behavior
+
   console.log("Calling handleSearch");
 
-  if (!sourceObject && !actionObject && !errornameObject) {
-    // Set the error message if no fields are filled
-    setFilterErrorMessage('Any one field is required to submit.');
-    return;
-  }
-
-  let combinedRecords = [];
-
-  // Helper function to push a matching record into combinedRecords
-  const addRecord = (keyErrorname, keySource, timestamp, keyAction, singleObj) => {
-    const recordExists = combinedRecords.some(record =>
-      record[2] === keyErrorname &&
-      record[3] === keySource &&
-      record[5] === keyAction
-    );
-
-    if (!recordExists) {
-      combinedRecords.push([1, false, keyErrorname, keySource, timestamp, keyAction, singleObj]);
+  try {
+    // Check if any of the required search fields are empty
+    if (!sourceObject && !actionObject && !errornameObject) {
+      setFilterErrorMessage("Any one field is required to submit.");
+      return;
     }
-  };
 
-  // Fetch all records
-  getAllRecords(null)
-    .then((response) => {
-      // Validate response and parse data
-      if (!response || !response.data || !response.data.body) {
-        setFilterErrorMessage("Invalid response structure");
-        return;
-      }
+    // Ensure the length of each search parameter is valid (>= 4 characters)
+    if (
+      (sourceObject && sourceObject.length < 4) ||
+      (actionObject && actionObject.length < 4) ||
+      (errornameObject && errornameObject.length < 4)
+    ) {
+      setFilterErrorMessage("Please enter at least 4 characters");
+      return;
+    }
 
-      let data;
-      try {
-        data = JSON.parse(response.data.body);
-      } catch (e) {
-        setFilterErrorMessage("Failed to parse response body");
-        return;
-      }
+    // Fetch all records from the API (similar to retrieveRecords)
+    let res = await getAllRecords(null);
 
-      if (!Array.isArray(data.objects) || data.objects.length === 0) {
-        setFilterErrorMessage("No records matched your search criteria.");
-        return;
-      }
+    if (res.status === 200) {
+      let data = JSON.parse(res.data.body); // Parse the response body
+      let objects = data.objects; // Get the records
 
-      const objects = data.objects;
-      const timestamp = new Date(response.data.timestamp).toUTCString();
+      // Set "isMoreData" state based on the continuation token
+      setIsMoreData(
+        data.nextContinuationToken !== undefined &&
+        data.nextContinuationToken.length > 0
+      );
 
-      // Iterate through all objects and apply the matching logic
-      objects.forEach((singleObj) => {
-        const [keySource, keyAction, keyErrorname] = singleObj.split("/");
+      // Start count from the length of the existing records
+      let startCount = records.length + 1;
 
-        // Perform partial matching
-        const sourceMatches = sourceObject && keySource.includes(sourceObject);
-        const actionMatches = actionObject && keyAction.includes(actionObject);
-        const errornameMatches = errornameObject && keyErrorname.includes(errornameObject);
+      // Process the objects array and apply filtering logic
+      let results = objects.map((entry) => {
+        let [source, action, docName] = entry.split('/');
 
-        // Matching Conditions
-        if (sourceMatches && !actionObject && !errornameObject) {
-          console.log("Source matched with empty Action and Errorname");
-          addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        } else if (actionMatches && !sourceObject && !errornameObject) {
-          console.log("Action matched with empty Source and Errorname");
-          addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        } else if (errornameMatches && !sourceObject && !actionObject) {
-          console.log("Errorname matched with empty Source and Action");
-          addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        } else if (sourceMatches && actionMatches && !errornameObject) {
-          console.log("Source and Action matched with empty Errorname");
-          addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        } else if (actionMatches && errornameMatches && !sourceObject) {
-          console.log("Action and Errorname matched with empty Source");
-          addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        } else if (sourceMatches && errornameMatches && !actionObject) {
-          console.log("Source and Errorname matched with empty Action");
-          addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
-        } else if (sourceMatches && actionMatches && errornameMatches) {
-          console.log("Source, Action, and Errorname matched");
-          addRecord(keyErrorname, keySource, timestamp, keyAction, singleObj);
+        // Check if the record matches the search criteria
+        const sourceMatches = sourceObject && source.includes(sourceObject);
+        const actionMatches = actionObject && action.includes(actionObject);
+        const errornameMatches = errornameObject && docName.includes(errornameObject);
+
+        // Matching logic with if conditions
+        if (sourceMatches && actionMatches && errornameMatches) {
+          console.log("Source, Action, and Erroname matched");
+          return createRecord(startCount++, source, action, docName, entry);
+        } else if (sourceMatches && actionMatches) {
+          console.log("Source and Action matched");
+          return createRecord(startCount++, source, action, docName, entry);
+        } else if (actionMatches && errornameMatches) {
+          console.log("Action and Erroname matched");
+          return createRecord(startCount++, source, action, docName, entry);
+        } else if (sourceMatches && errornameMatches) {
+          console.log("Source and Erroname matched");
+          return createRecord(startCount++, source, action, docName, entry);
+        } else if (sourceMatches) {
+          console.log("Source matched");
+          return createRecord(startCount++, source, action, docName, entry);
+        } else if (actionMatches) {
+          console.log("Action matched");
+          return createRecord(startCount++, source, action, docName, entry);
+        } else if (errornameMatches) {
+          console.log("Erroname matched");
+          return createRecord(startCount++, source, action, docName, entry);
         }
-      });
+
+        return null; // If no match, return null (we will filter these out)
+      }).filter(record => record !== null); // Filter out any null values (no matches)
 
       // Handle no matches found
-      if (combinedRecords.length === 0) {
+      if (results.length === 0) {
         setFilterErrorMessage("No records matched your search criteria.");
-        setRecords([]);
-        setIsMoreData(false);
+        setRecords([]);  // Clear the records state
+        setIsMoreData(false);  // Indicate no more data
       } else {
-        setRecords([...combinedRecords]);  // Update state with the new records
+        // Combine existing records with the new search results
+        let combined = [...records, ...results];  // Merge old records and new results
+
+        // Update the state with combined records
+        setRecords(combined);
+
+        // Clear any error message if the search was successful
+        setFilterErrorMessage(""); 
       }
-    })
-    .catch((error) => {
-      setFilterErrorMessage("Error fetching records: " + error);
-    });
+    } else {
+      // Handle non-200 responses
+      setFilterErrorMessage("Error fetching records.");
+    }
+  } catch (error) {
+    // Handle errors during the network request
+    console.error("Error fetching records: Network error", error);
+    setFilterErrorMessage("Error fetching records: Network error");
+  }
 };
 
-// Function to reset the filters
-const resetFilters = () => {
-  // Reload the page
-  window.location.reload();
+// Helper function to create a record based on the search criteria
+const createRecord = (startCount, source, action, docName, entry) => {
+  let unix = convertUnixToDate(docName.split('_').pop()); // Convert the timestamp
+  let date = new Date(unix);
+  let dateString = date.toUTCString(); // Convert the date to a string format
 
-  // Reset the source, action, and error name state
-  setSourceObject('');
-  setActionObject('');
-  setErrornameObject('');
+  return [
+    startCount,    // Record count
+    false,         // Some flag or status (adjust if necessary)
+    docName,       // Document name
+    source,        // Source
+    dateString,    // Date string
+    action,        // Action
+    entry          // The full entry object
+  ];
 };
