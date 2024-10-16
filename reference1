@@ -1,113 +1,220 @@
-Refactored Code:
-1. Create a Helper Function (filterAndAddRecords)
-javascript
-Copy code
-// Helper function to filter and process records
-const filterAndAddRecords = (recordsToProcess, startCount) => {
-  const filteredRecords = [];
+import { useState, useEffect } from 'react';
+import {
+  Container, Stack, Display,
+  Button
+} from '@usaa-grp-reveille-design/react/Layout';
+import { getAllRecords, retryIndividualRecord, deleteIndividualRecord } from '../utils/record-utils';
+import ErrorItemModal from './components/ErrorItemModal';
+import ModalTemplate from './components/ModalTemplate';
+import ErrorTable from './components/ErrorTable';
+import TextInput from '@usaa-grp-reveille-design/react/TextInput';
 
-  recordsToProcess.forEach((singleObj) => {
-    const [keySource, keyAction, keyErroname] = singleObj.split('/');
+const ErrorAdmin = () => {
+  // State variables for records and modal handling
+  const [allRecords, setAllRecords] = useState([]);  // Store all fetched records
+  const [displayedRecords, setDisplayedRecords] = useState([]);  // Records currently displayed (pagination)
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalProps, setModalProps] = useState({});
+  const [scrollPosition, setScrollPosition] = useState(0);
+  const [isMoreData, setIsMoreData] = useState(false);
+  const [selectedRowItems, setSelectedRowItems] = useState([]);
+  const [isDeleted, setIsDeleted] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [messageData, setMessageData] = useState('');
+  const [sourceObject, setSourceObject] = useState('');
+  const [actionObject, setActionObject] = useState('');
+  const [erronameObject, setErronameObject] = useState('');
+  const [modalEntryKey, setModalEntryKey] = useState('');
+  const [filterErrorMessage, setFilterErrorMessage] = useState('');
+  const [isFilterActive, setIsFilterActive] = useState(false);
+  const [continuationToken, setContinuationToken] = useState(null);
 
-    const sourceMatches = sourceObject && keySource.includes(sourceObject);
-    const actionMatches = actionObject && keyAction.includes(actionObject);
-    const errornameMatches = errornameObject && keyErroname.includes(errornameObject);
+  const recordsPerPage = 50;  // Display 50 records per page
 
-    // Filtering logic
-    if (sourceMatches && actionMatches && errornameMatches) {
-      filteredRecords.push(addRecord(keyErroname, keySource, timestamp, keyAction, singleObj));
-    } else if (sourceMatches && actionMatches) {
-      filteredRecords.push(addRecord(keyErroname, keySource, timestamp, keyAction, singleObj));
-    } else if (actionMatches && errornameMatches) {
-      filteredRecords.push(addRecord(keyErroname, keySource, timestamp, keyAction, singleObj));
-    } else if (sourceMatches && errornameMatches) {
-      filteredRecords.push(addRecord(keyErroname, keySource, timestamp, keyAction, singleObj));
-    } else if (sourceMatches) {
-      filteredRecords.push(addRecord(keyErroname, keySource, timestamp, keyAction, singleObj));
-    } else if (actionMatches) {
-      filteredRecords.push(addRecord(keyErroname, keySource, timestamp, keyAction, singleObj));
-    } else if (errornameMatches) {
-      filteredRecords.push(addRecord(keyErroname, keySource, timestamp, keyAction, singleObj));
+  // Function to convert Unix date
+  const convertUnixToDate = (unix) => {
+    unix = parseInt(unix);
+    if (unix.toString().length !== 13) {
+      unix = unix * 1000;
     }
-  });
+    return unix;
+  };
 
-  return filteredRecords;
-};
-2. Update handleSearch to Use the Helper
-javascript
-Copy code
-const handleSearch = async (e) => {
-  if (e && e.preventDefault) {
-    e.preventDefault(); // Prevent form submission
-  }
+  // Function to fetch all records using continuation token (pagination)
+  const fetchAllRecords = async () => {
+    let allFetchedRecords = [];
+    let token = null;
+    let hasMoreData = true;
 
-  console.log("Calling handleSearch");
+    try {
+      // Fetch records automatically in batches of 50 until no more data is available
+      while (hasMoreData) {
+        const response = await getAllRecords(token);  // Fetch next batch (50 records)
+        const data = response.data;
+        const newRecords = data.objects;
 
-  try {
-    const response = await getAllRecords(null);
-    const data = JSON.parse(response.data.body);
-    const recordsToProcess = data.objects;
+        // Append the new records to the list of all fetched records
+        allFetchedRecords = [...allFetchedRecords, ...newRecords];
 
-    // Set the "isMoreData" flag for load more functionality
-    setIsMoreData(
-      data.nextContinuationToken !== undefined &&
-      data.nextContinuationToken.length > 0
-    );
+        // Get the continuation token for the next batch
+        token = response.headers['next-continuation-token'];
 
-    // Start processing from count 1 (or adjust accordingly)
-    let startCount = 1;
+        // If no continuation token is available, stop fetching
+        if (!token) {
+          hasMoreData = false;
+        }
+      }
 
-    // Use the helper function to filter and process the records
-    const filteredRecords = filterAndAddRecords(recordsToProcess, startCount);
+      // Store all fetched records in state
+      setAllRecords(allFetchedRecords);
 
-    if (filteredRecords.length === 0) {
-      setFilterErrorMessage("No records matched your search criteria.");
-      setRecords([]);
-      setIsMoreData(false);
-    } else {
-      setRecords(filteredRecords);
-      setFilterErrorMessage(""); // Clear the error message
+      // Initially display the first 50 records
+      setDisplayedRecords(allFetchedRecords.slice(0, recordsPerPage));
+
+      // Check if there is more data to be fetched
+      setIsMoreData(allFetchedRecords.length > recordsPerPage);
+
+    } catch (error) {
+      console.error('Error fetching records:', error);
     }
+  };
 
-    setIsSearchActive(true); // Mark search as active
+  // Handle Load More - Display the next set of records
+  const handleLoadMore = () => {
+    const nextRecords = allRecords.slice(displayedRecords.length, displayedRecords.length + recordsPerPage);
+    setDisplayedRecords((prevRecords) => [...prevRecords, ...nextRecords]);  // Append the next set of records
+    setScrollPosition(window.scrollY);  // Store scroll position
+  };
 
-  } catch (error) {
-    setFilterErrorMessage("Error fetching records: Network error");
-    console.error("Error fetching records:", error);
-  }
+  // useEffect hook to retrieve all records when component mounts
+  useEffect(() => {
+    fetchAllRecords();  // Automatically fetch records when component mounts
+  }, []);
+
+  // Handle closing the modal
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setTemplateOpen(false);
+    setMessageData('');
+    setModalEntryKey('');
+  };
+
+  // Handle actions for delete and retry
+  const handleDelete = () => {
+    handleAction(deleteIndividualRecord, 'Error deleting items:');
+  };
+
+  const handleRetry = () => {
+    handleAction(retryIndividualRecord, 'Error retrying items:');
+  };
+
+  // Function to handle actions like delete and retry
+  const handleAction = async (actionFunction) => {
+    if (selectedRowItems.length === 0) return;
+    let messages = [];
+    let successCount = 0;
+    for (const item of selectedRowItems) {
+      const data = { source: item[3], action: item[5], filename: item[2] };
+      const response = await actionFunction(data);
+      if ((await response.status) !== 200) {
+        let errorMessage = 'An unexpected error occurred';
+        if (response) {
+          errorMessage = handleResponse(response);
+        } else if (response.request) {
+          errorMessage = 'No response from the server';
+        } else {
+          errorMessage = 'An unknown error occurred';
+        }
+        messages.push(errorMessage);
+      } else {
+        successCount++;
+      }
+    }
+    messages.push(`${successCount} out of ${selectedRowItems.length} records processed successfully.`);
+    setMessageData(messages.join('\n'));
+    setSelectedRowItems([]);
+    setIsDeleted(!isDeleted);
+    setModalTitle(modalTitle + ' Results');
+  };
+
+  // Rendering the component
+  return (
+    <Container>
+      <Form
+        data-testid="form"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '2em' }}
+        onSubmit={handleSearch}
+      >
+        <TextInput
+          data-testid="erroname-input"
+          value={erronameObject}
+          onChange={handleErrorNameChange}
+          placeholder="Error Key"
+        />
+        <TextInput
+          data-testid="source-input"
+          value={sourceObject}
+          onChange={handleSourceChange}
+          placeholder="Error Source"
+        />
+        <TextInput
+          data-testid="action-input"
+          value={actionObject}
+          onChange={handleActionChange}
+          placeholder="Action Type"
+        />
+        <Button.Group style={{ marginTop: '18px' }}>
+          <Button type="submit">Submit</Button>
+          <Button data-testid="reset-button" destructive type="button" onClick={resetFilters}>
+            Reset
+          </Button>
+        </Button.Group>
+      </Form>
+
+      {/* Error message display */}
+      {filterErrorMessage && (
+        <div data-testid="filterErrorMessage" style={{ color: 'red', margin: '2px' }}>
+          {filterErrorMessage}
+        </div>
+      )}
+
+      {/* Render table of records */}
+      {records.length > 0 && (
+        <ErrorTable
+          data={records}
+          onViewItem={handleViewItem}
+          sendSelectedItems={handleSelectedItems}
+          tableRows={tableRows}
+          isDeleted={isDeleted}
+        />
+      )}
+
+      {/* Load More button */}
+      {isMoreData && (
+        <Button.Group vertical>
+          <Button secondary onClick={handleLoadMore}>Load More</Button>
+        </Button.Group>
+      )}
+
+      {/* Modals for viewing and deleting items */}
+      <ErrorItemModal
+        open={modalOpen}
+        title={modalProps.filename}
+        data={modalProps}
+        entryKey={Number(modalEntryKey)}
+        onClose={handleCloseModal}
+      />
+      <ModalTemplate
+        onOpen={templateOpen}
+        onClose={handleCloseModal}
+        title={modalTitle}
+        onDelete={handleDelete}
+        onRetry={handleRetry}
+        onResponse={messageData}
+      />
+    </Container>
+  );
 };
-3. Update handleLoadMore to Use the Same Logic
-javascript
-Copy code
-const handleLoadMore = async () => {
-  setScrollPosition(window.scrollY); // Save scroll position
 
-  try {
-    const response = await getAllRecords(null); // Fetch next batch of records
-    const data = JSON.parse(response.data.body);
-    const recordsToProcess = data.objects;
-
-    // Set continuation token to check if more records are available
-    setIsMoreData(
-      data.nextContinuationToken !== undefined &&
-      data.nextContinuationToken.length > 0
-    );
-
-    let startCount = combinedRecords.length + 1; // Continue from where the last records ended
-
-    // Use the same helper function to filter and process the new records
-    const filteredNewRecords = filterAndAddRecords(recordsToProcess, startCount);
-
-    // Append new records to the existing ones
-    const updatedCombinedRecords = [...combinedRecords, ...filteredNewRecords];
-
-    // Update the state
-    setRecords(updatedCombinedRecords);
-
-    console.log("Updated Combined Records after Load More:", updatedCombinedRecords);
-
-  } catch (error) {
-    setFilterErrorMessage("Error fetching more records: Network error");
-    console.error("Error fetching more records:", error);
-  }
-};
+export default ErrorAdmin;
