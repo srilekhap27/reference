@@ -1,56 +1,69 @@
 const fetchAllRecords = async () => {
-  let allFetchedRecords = [];  // Store all records
+  let allFetchedRecords = [];  // Store all fetched records
   let continuationToken = null;  // Token for fetching the next batch
-  let hasMoreData = true;
+  let hasMoreData = true;  // Flag to check if more data is available
+  const recordLimit = 1000;  // Limit to fetch only 1000 records
+
+  console.log('Starting to fetch all records...');  // Log when fetching starts
 
   try {
-    // Fetch records in batches of 50
-    while (hasMoreData) {
-      const res = await getAllRecords(continuationToken);  // Fetch records with token
+    // Loop to fetch all records until no more continuation token is present or we reach the limit
+    while (hasMoreData && allFetchedRecords.length < recordLimit) {
+      const res = await getAllRecords(continuationToken);  // Fetch records using continuation token
+      console.log('API Response:', res);  // Log the API response
 
       if (res.status === 200) {
-        // Parse response data
-        const data = res.data;
+        // First, we need to parse the `body` field, which contains JSON data
+        const dataBody = JSON.parse(res.data.body);  // Parse the `body` as JSON
+        const objects = dataBody.objects || [];  // Get the records (objects) from the parsed body
 
-        // Parse `body` since it's a stringified JSON object
-        const parsedBody = JSON.parse(data.body);  // Converts string to object
-        const objects = parsedBody.objects || [];  // Now `objects` is an array
+        // Log the fetched batch of records for debugging
+        console.log('Fetched batch of records:', objects);
 
-        // Convert the records and store them
+        // Format and store the fetched records
         let startCount = allFetchedRecords.length + 1;
         let results = objects.map((entry) => {
           let [source, action, docName] = entry.split('/');
           let unix = convertUnixToDate(docName.split('_').pop());
           let date = new Date(unix);
           let dateString = date.toUTCString();
-
           return [startCount++, false, docName, source, dateString, action, entry];
         });
 
-        // Append the newly fetched records to the allFetchedRecords array
+        // Append the fetched records to allFetchedRecords
         allFetchedRecords = [...allFetchedRecords, ...results];
 
-        // Set the continuation token for the next fetch
-        continuationToken = data.nextContinuationToken;
+        // Check if we've reached the record limit
+        if (allFetchedRecords.length >= recordLimit) {
+          console.log(`Record limit of ${recordLimit} reached.`);
+          break;  // Exit the loop if the limit is reached
+        }
 
-        // If no more tokens, we've fetched all the data
-        if (!continuationToken) {
-          hasMoreData = false;
+        // Extract the next continuation token from the parsed body
+        continuationToken = dataBody.nextContinuationToken;
+
+        // Log the continuation token for debugging
+        console.log('Next Continuation Token:', continuationToken);
+
+        // Check if there's more data to fetch; break loop if no token
+        hasMoreData = continuationToken !== null && continuationToken !== undefined;
+
+        // Exit the loop if there are no more tokens
+        if (!hasMoreData) {
+          console.log("No more continuation token. All data fetched.");
+          break;
         }
       } else {
-        throw new Error('Error fetching records');
+        throw new Error("Failed to fetch records");
       }
     }
 
-    // Store all fetched records in state
+    // After fetching all records, store them in the state
     setAllRecords(allFetchedRecords);
-    console.log('All records fetched:', allFetchedRecords);
+    console.log('All records fetched:', allFetchedRecords);  // Log all fetched records
 
-    // Initially display the first 50 records
+    // Display the first batch of records (e.g., 50 records)
     setDisplayedRecords(allFetchedRecords.slice(0, recordsPerPage));
-
-    // Check if more data is available for "Load More" functionality
-    setIsMoreData(allFetchedRecords.length > recordsPerPage);
 
   } catch (error) {
     console.error('Error fetching records:', error);
