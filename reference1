@@ -1,71 +1,57 @@
-const fetchAllRecords = async () => {
-  let allFetchedRecords = [];  // Store all fetched records
-  let continuationToken = null;  // Token for fetching the next batch
-  let hasMoreData = true;  // Flag to check if more data is available
-  const recordLimit = 1000;  // Limit to fetch only 1000 records
+// Utility function to introduce a delay
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  console.log('Starting to fetch all records...');  // Log when fetching starts
+// Function to retrieve records in a loop until the total is 1000
+let retrieveAllRecords = async () => {
+    let totalRecords = [];
+    let contToken = null; // Initialize the continuation token as null for the first call
+    let totalFetched = 0; // To keep track of the total records fetched
 
-  try {
-    // Loop to fetch all records until no more continuation token is present or we reach the limit
-    while (hasMoreData && allFetchedRecords.length < recordLimit) {
-      const res = await getAllRecords(continuationToken);  // Fetch records using continuation token
-      console.log('API Response:', res);  // Log the API response
+    // Loop until we fetch 1000 records
+    while (totalFetched < 1000) {
+        console.log("Fetching records with continuationToken:", contToken);
 
-      if (res.status === 200) {
-        // First, we need to parse the `body` field, which contains JSON data
-        const dataBody = JSON.parse(res.data.body);  // Parse the `body` as JSON
-        const objects = dataBody.objects || [];  // Get the records (objects) from the parsed body
+        // Fetch records using the continuation token
+        let res = await getAllRecords(contToken);
+        let data = JSON.parse(res.data.body);
+        let objects = data.objects || [];
 
-        // Log the fetched batch of records for debugging
-        console.log('Fetched batch of records:', objects);
-
-        // Format and store the fetched records
-        let startCount = allFetchedRecords.length + 1;
+        // Process the objects returned by the API
         let results = objects.map((entry) => {
-          let [source, action, docName] = entry.split('/');
-          let unix = convertUnixToDate(docName.split('_').pop());
-          let date = new Date(unix);
-          let dateString = date.toUTCString();
-          return [startCount++, false, docName, source, dateString, action, entry];
+            let [source, action, docName] = entry.split('/');
+            let unix = convertUnixToDate(docName.split('_').pop());
+            let date = new Date(unix);
+            let dateString = date.toUTCString();
+            return [false, docName, source, dateString, action, entry];
         });
 
-        // Append the fetched records to allFetchedRecords
-        allFetchedRecords = [...allFetchedRecords, ...results];
+        // Add fetched records to the total
+        totalRecords.push(...results);
+        totalFetched += results.length;
 
-        // Check if we've reached the record limit
-        if (allFetchedRecords.length >= recordLimit) {
-          console.log(`Record limit of ${recordLimit} reached.`);
-          break;  // Exit the loop if the limit is reached
+        // Set the next continuation token
+        if (data.nextContinuationToken && data.nextContinuationToken.length > 0) {
+            contToken = data.nextContinuationToken; // Set the continuation token for the next API call
+        } else {
+            // If there's no continuation token, break out of the loop
+            console.log("No more records to fetch.");
+            break;
         }
 
-        // Extract the next continuation token from the parsed body
-        continuationToken = dataBody.nextContinuationToken;
-
-        // Log the continuation token for debugging
-        console.log('Next Continuation Token:', continuationToken);
-
-        // Check if there's more data to fetch; break loop if no token
-        hasMoreData = continuationToken !== null && continuationToken !== undefined;
-
-        // Exit the loop if there are no more tokens
-        if (!hasMoreData) {
-          console.log("No more continuation token. All data fetched.");
-          break;
+        // If fetched records reach or exceed 1000, exit the loop
+        if (totalFetched >= 1000) {
+            console.log("Reached the limit of 1000 records.");
+            break;
         }
-      } else {
-        throw new Error("Failed to fetch records");
-      }
+
+        // Introduce a delay of 1 second before calling the API again
+        await delay(1000);
     }
 
-    // After fetching all records, store them in the state
-    setAllRecords(allFetchedRecords);
-    console.log('All records fetched:', allFetchedRecords);  // Log all fetched records
-
-    // Display the first batch of records (e.g., 50 records)
-    setDisplayedRecords(allFetchedRecords.slice(0, recordsPerPage));
-
-  } catch (error) {
-    console.error('Error fetching records:', error);
-  }
+    // Store the records in memory storage (can use localStorage or in-memory variable)
+    localStorage.setItem('fetchedRecords', JSON.stringify(totalRecords));
+    console.log("All records fetched and stored in memory.");
 };
+
+// Instead of using handleLoadMore, simply call retrieveAllRecords
+retrieveAllRecords();
