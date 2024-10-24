@@ -1,45 +1,113 @@
 package main
 
 import (
-    "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
     "log"
     "os"
-    "time"
     "github.com/gin-gonic/gin"
-    "prodgitlab.usaa.com/grp-my-documents-retrieval/ent-mydocs-retrieval-svc/pkg/server"
-    "your-project/pkg/controller"  // <-- Import your controller package here
+    "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+    "your-project/pkg/controller"
 )
 
 func init() {
-    // Set the time zone and Gin mode based on the environment
-    _, _ = time.LoadLocation("America/Chicago")
     if os.Getenv("RUNTIME_ENV") == "prod" {
         gin.SetMode(gin.ReleaseMode)
     }
 }
 
 func main() {
-    // Start tracing with DataDog
+    // Start DataDog tracing
     tracer.Start(
         tracer.WithService(os.Getenv("DD_SERVICE")),
-        tracer.WithTraceEnabled(true),
-        tracer.WithRuntimeMetrics(),
-        tracer.WithServiceVersion(os.Getenv("DD_VERSION")),
         tracer.WithEnv(os.Getenv("DD_ENV")),
+        tracer.WithServiceVersion(os.Getenv("DD_VERSION")),
     )
     defer tracer.Stop()
 
-    // Initialize Gin router
+    // Initialize the Gin router
     router := gin.Default()
 
-    // Register the route for document retrieval
-    router.GET("/documents/:documentGuid/:displayDate", func(c *gin.Context) {
-        // Call the document handler here
+    // Route for retrieving a document via the Gloo Gateway
+    router.GET("/documents/:guid/:date", func(c *gin.Context) {
         controller.GetDocumentHandler(c.Writer, c.Request)
     })
 
     // Start the server
-    if err := server.Run(); err != nil {
-        log.Printf("Server failed to start: %v", err)
+    if err := router.Run(); err != nil {
+        log.Fatalf("Server failed to start: %v", err)
     }
+}
+------------------------------------------------------------------------------------------------------------------------------------
+
+package controller
+
+import (
+    "net/http"
+    "your-project/pkg/clients"
+    "github.com/gorilla/mux"
+    "encoding/json"
+    "log"
+)
+
+func GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
+    // Extract parameters from the URL
+    vars := mux.Vars(r)
+    guid := vars["guid"]
+    date := vars["date"]
+
+    // Extract the partyId from the headers (security context)
+    partyId := r.Header.Get("partyId")
+
+    // Call the client to retrieve the document via Gloo
+    document, err := clients.RetrieveDocumentThroughGloo(guid, date, partyId)
+    if err != nil {
+        http.Error(w, "Failed to retrieve document", http.StatusInternalServerError)
+        log.Printf("Error retrieving document: %v", err)
+        return
+    }
+
+    // Return the document data as JSON
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(document)
+}
+------------------------------------------------------------------------------------------------------------------------------------
+package clients
+
+import (
+    "fmt"
+    "github.com/go-resty/resty/v2"
+    "log"
+)
+
+func RetrieveDocumentThroughGloo(guid, date, partyId string) (interface{}, error) {
+    // Create a new Resty client
+    client := resty.New()
+
+    // Construct the Gloo Gateway URL (replace with actual Gloo Gateway URL)
+    gatewayBaseURL := "https://gloo.gateway.com"  // Replace this with the real Gloo URL
+    url := fmt.Sprintf("%s/documents/%s/%s", gatewayBaseURL, guid, date)
+
+    // Make the GET request through the Gloo Gateway
+    resp, err := client.R().
+        SetHeader("partyId", partyId).  // Set the partyId header
+        Get(url)
+
+    if err != nil {
+        log.Printf("Error calling Gloo Gateway: %v", err)
+        return nil, err
+    }
+
+    if resp.StatusCode() != 200 {
+        log.Printf("Non-200 status code from Gloo: %d", resp.StatusCode())
+        return nil, fmt.Errorf("Non-200 response: %d", resp.StatusCode())
+    }
+
+    // Parse the response (modify the structure according to your API response)
+    var result interface{}
+    err = resp.Unmarshal(&result)
+    if err != nil {
+        log.Printf("Error unmarshalling response: %v", err)
+        return nil, err
+    }
+
+    return result, nil
 }
