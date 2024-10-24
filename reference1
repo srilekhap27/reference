@@ -1,80 +1,45 @@
-package clients
+package main
 
 import (
-    "fmt"
-    "log/slog"
-    "net/http"
-    "github.com/go-resty/resty/v2"
+    "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+    "log"
+    "os"
+    "time"
+    "github.com/gin-gonic/gin"
+    "prodgitlab.usaa.com/grp-my-documents-retrieval/ent-mydocs-retrieval-svc/pkg/server"
+    "your-project/pkg/controller"  // <-- Import your controller package here
 )
 
-// Define the structure of the expected response (modify it according to your actual API response structure)
-type DocumentMetadata struct {
-    // Add necessary fields here
-    DocumentID string `json:"documentId"`
-    OwnerID    string `json:"ownerId"`
+func init() {
+    // Set the time zone and Gin mode based on the environment
+    _, _ = time.LoadLocation("America/Chicago")
+    if os.Getenv("RUNTIME_ENV") == "prod" {
+        gin.SetMode(gin.ReleaseMode)
+    }
 }
 
-// GetDocumentMetadata calls the /documents/{documentGuid}/{displayDate} endpoint
-func (client *RestyClientExt) GetDocumentMetadata(documentGuid, displayDate, partyId string) (*DocumentMetadata, int, error) {
-    url := fmt.Sprintf("/documents/%s/%s", documentGuid, displayDate)
+func main() {
+    // Start tracing with DataDog
+    tracer.Start(
+        tracer.WithService(os.Getenv("DD_SERVICE")),
+        tracer.WithTraceEnabled(true),
+        tracer.WithRuntimeMetrics(),
+        tracer.WithServiceVersion(os.Getenv("DD_VERSION")),
+        tracer.WithEnv(os.Getenv("DD_ENV")),
+    )
+    defer tracer.Stop()
 
-    // Make the GET request with headers (partyId included)
-    resp, err := client.InnerClient.R().
-        SetHeader("partyId", partyId).
-        SetResult(&DocumentMetadata{}).  // Bind response to the DocumentMetadata struct
-        Get(url)
+    // Initialize Gin router
+    router := gin.Default()
 
-    if err != nil {
-        // Log and return the error
-        slog.Error("Error making GET request to document retrieval service",
-            slog.String("documentGuid", documentGuid),
-            slog.String("displayDate", displayDate),
-            slog.String("error", err.Error()))
-        return nil, http.StatusInternalServerError, fmt.Errorf("failed to call document retrieval service: %v", err)
+    // Register the route for document retrieval
+    router.GET("/documents/:documentGuid/:displayDate", func(c *gin.Context) {
+        // Call the document handler here
+        controller.GetDocumentHandler(c.Writer, c.Request)
+    })
+
+    // Start the server
+    if err := server.Run(); err != nil {
+        log.Printf("Server failed to start: %v", err)
     }
-
-    // Handle non-200 responses
-    if resp.StatusCode() != http.StatusOK {
-        slog.Error("Non-200 status code from document retrieval service",
-            slog.String("documentGuid", documentGuid),
-            slog.String("displayDate", displayDate),
-            slog.Int("statusCode", resp.StatusCode()),
-            slog.String("response", resp.String()))
-        return nil, resp.StatusCode(), fmt.Errorf("received non-200 status code: %d", resp.StatusCode())
-    }
-
-    // Return the parsed result
-    return resp.Result().(*DocumentMetadata), resp.StatusCode(), nil
-}
---------------------------
-
-package controller
-
-import (
-    "net/http"
-    "github.com/gorilla/mux"
-    "your-project/pkg/clients"
-)
-
-func GetDocumentHandler(w http.ResponseWriter, r *http.Request) {
-    // Extract parameters from the path
-    vars := mux.Vars(r)
-    documentGuid := vars["documentGuid"]
-    displayDate := vars["displayDate"]
-
-    // Extract the partyId from headers (security context)
-    partyId := r.Header.Get("partyId")
-
-    // Call the restyClient to fetch the document metadata
-    client := clients.NewRestyClient()
-    metadata, statusCode, err := client.GetDocumentMetadata(documentGuid, displayDate, partyId)
-
-    if err != nil {
-        http.Error(w, "Failed to retrieve document", statusCode)
-        return
-    }
-
-    // Respond with the document metadata (convert to JSON)
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(metadata)
 }
